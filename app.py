@@ -107,9 +107,19 @@ elif mode == "🔓 Extract & Decrypt":
             stego_img = Image.open(stego_file)
             try:
                 qr_img = extract_qr_from_image(stego_img)
-
-               qr_img_cv = np.array(qr_img.convert("L"))  # Convert to grayscale (uint8)
-               decoded = decode(cv2.cvtColor(qr_img_cv, cv2.COLOR_GRAY2BGR))
+                           try:
+                qr_img = extract_qr_from_image(stego_img)
+                qr_img_cv = np.array(qr_img.convert("L"))  # Convert to grayscale (uint8)
+                decoded = decode(cv2.cvtColor(qr_img_cv, cv2.COLOR_GRAY2BGR))
+                if decoded:
+                    encrypted_data = decoded[0].data.decode()
+                    message = decrypt_data(encrypted_data)
+                    st.success("✅ Decrypted Message:")
+                    st.code(message)
+                else:
+                    st.error("❌ Could not decode QR code from image.")
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
 
                 if decoded:
                     encrypted_data = decoded[0].data.decode()
