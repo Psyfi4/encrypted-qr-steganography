@@ -1,5 +1,3 @@
-# app.py - Streamlit Web App for Encrypted QR Code Steganography
-
 import streamlit as st
 from PIL import Image
 import numpy as np
@@ -9,7 +7,7 @@ import cv2
 from pyzbar.pyzbar import decode
 from Crypto.Cipher import AES
 
-# AES Encryption/Decryption
+# AES E/D
 
 def pad(text):
     pad_len = 16 - len(text) % 16
@@ -40,22 +38,32 @@ def decode_qr(image_path):
     decoded = decode(img)
     return decoded[0].data.decode() if decoded else None
 
-# LSB Steganography
+# LSB Stego
 
 def hide_qr_in_image(cover_img, qr_img):
-    cover = cover_img.convert("RGB")
-    qr = qr_img.convert("1")
+    cover_data = np.array(cover_img)
+    qr_data = np.array(qr_img.convert('1'))  # convert to black/white (1-bit)
 
-    cover_data = np.array(cover)
-    qr_data = np.array(qr.resize(cover.size))
+   # QR -> bits
+    
+    qr_bits = qr_data.flatten()
+    qr_bits = [1 if bit == 0 else 0 for bit in qr_bits]  # Invert because black is 0
 
-    for i in range(qr_data.shape[0]):
-        for j in range(qr_data.shape[1]):
-            bit = qr_data[i, j] // 255
-            cover_data[i, j, 0] = (cover_data[i, j, 0] & ~1) | bit
+    height, width, _ = cover_data.shape
+    total_pixels = height * width
 
-    result = Image.fromarray(cover_data)
-    return result
+    if len(qr_bits) > total_pixels:
+        raise ValueError("Cover image too small to hide the QR code. Use a larger image.")
+
+    idx = 0
+    for i in range(height):
+        for j in range(width):
+            if idx < len(qr_bits):
+                bit = qr_bits[idx]
+                cover_data[i, j, 0] = (cover_data[i, j, 0] & ~1) | bit
+                idx += 1
+
+    return Image.fromarray(cover_data)
 
 def extract_qr_from_image(stego_img):
     stego = stego_img.convert("RGB")
