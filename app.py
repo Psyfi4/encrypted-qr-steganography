@@ -108,8 +108,9 @@ elif mode == "🔓 Extract & Decrypt":
             try:
                 qr_img = extract_qr_from_image(stego_img)
 
-                qr_img_cv = np.array(qr_img)
-                decoded = decode(cv2.cvtColor(qr_img_cv, cv2.COLOR_GRAY2BGR))
+               qr_img_cv = np.array(qr_img.convert("L"))  # Convert to grayscale (uint8)
+               decoded = decode(cv2.cvtColor(qr_img_cv, cv2.COLOR_GRAY2BGR))
+
                 if decoded:
                     encrypted_data = decoded[0].data.decode()
                     message = decrypt_data(encrypted_data)
