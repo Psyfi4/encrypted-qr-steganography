@@ -1,134 +1,114 @@
 import streamlit as st
-from PIL import Image
 import numpy as np
-import base64
-import qrcode
-import io
 import cv2
+import qrcode
+from PIL import Image
 from pyzbar.pyzbar import decode
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
+import base64
+import io
 
-# AES encryption/decryption key (must be 16 bytes)
-AES_KEY = b'MySecretKey12345'  # 16-char key
+# --- AES Encryption / Decryption ---
+def encrypt_data(data, key):
+    cipher = AES.new(key.encode(), AES.MODE_CBC, iv=b'1234567890123456')
+    ct_bytes = cipher.encrypt(pad(data.encode(), AES.block_size))
+    return base64.b64encode(ct_bytes).decode()
 
-def encrypt_data(data):
-    cipher = AES.new(AES_KEY, AES.MODE_ECB)
-    encrypted = cipher.encrypt(pad(data.encode(), AES.block_size))
-    return base64.b64encode(encrypted).decode()
+def decrypt_data(enc_data, key="thisisasecretkey"):  # Default key
+    try:
+        enc = base64.b64decode(enc_data)
+        cipher = AES.new(key.encode(), AES.MODE_CBC, iv=b'1234567890123456')
+        pt = unpad(cipher.decrypt(enc), AES.block_size)
+        return pt.decode()
+    except Exception as e:
+        return f"Decryption Error: {e}"
 
-def decrypt_data(enc_data):
-    cipher = AES.new(AES_KEY, AES.MODE_ECB)
-    decrypted = unpad(cipher.decrypt(base64.b64decode(enc_data)), AES.block_size)
-    return decrypted.decode()
-
+# --- QR Code Generation ---
 def generate_qr_code(data):
-    qr = qrcode.QRCode(version=1, box_size=10, border=2)
+    qr = qrcode.QRCode(version=1, box_size=10, border=1)
     qr.add_data(data)
     qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
+    img = qr.make_image(fill_color='black', back_color='white')
     return img
 
+# --- Steganography: Hide QR in Cover Image ---
 def hide_qr_in_image(cover_img, qr_img):
-    cover_data = np.array(cover_img.convert("RGB"))
-    qr_data = np.array(qr_img.convert("1"))
+    cover_img = cover_img.convert("RGB")
+    qr_img = qr_img.resize(cover_img.size).convert("1")  # Binary QR
+    cover_data = np.array(cover_img)
+    qr_data = np.array(qr_img)
 
-    qr_bits = qr_data.flatten()
-    qr_bits = [1 if bit == 0 else 0 for bit in qr_bits]  # Invert black to 1
+    # Embed each QR pixel's bit into LSB of red channel
+    for i in range(cover_data.shape[0]):
+        for j in range(cover_data.shape[1]):
+            bit = 1 if qr_data[i, j] == 0 else 0  # black pixel = 1
+            cover_data[i, j, 0] = (cover_data[i, j, 0] & ~1) | bit
 
-    height, width, _ = cover_data.shape
-    total_pixels = height * width
-
-    if len(qr_bits) > total_pixels:
-        raise ValueError(f"Cover image too small. Needs {len(qr_bits)} pixels, has {total_pixels}.")
-
-    idx = 0
-    for i in range(height):
-        for j in range(width):
-            if idx < len(qr_bits):
-                pixel_value = int(cover_data[i, j, 0])
-                bit = qr_bits[idx]
-                cover_data[i, j, 0] = (pixel_value & ~1) | bit
-                idx += 1
-
-    stego_img = Image.fromarray(cover_data.astype(np.uint8))
+    stego_img = Image.fromarray(cover_data)
     return stego_img
 
+# --- Extract QR from Stego Image ---
 def extract_qr_from_image(stego_img):
-    cover_data = np.array(stego_img.convert("RGB"))
-    height, width, _ = cover_data.shape
+    stego_data = np.array(stego_img)
+    qr_data = np.zeros((stego_data.shape[0], stego_data.shape[1]), dtype=np.uint8)
 
-    bits = []
-    for i in range(height):
-        for j in range(width):
-            bits.append(cover_data[i, j, 0] & 1)
+    for i in range(stego_data.shape[0]):
+        for j in range(stego_data.shape[1]):
+            bit = stego_data[i, j, 0] & 1
+            qr_data[i, j] = 0 if bit == 1 else 255
 
-    qr_size = int(np.sqrt(len(bits)))
-    bits = bits[:qr_size * qr_size]
-    qr_array = np.array(bits, dtype=np.uint8).reshape((qr_size, qr_size)) * 255
-    qr_img = Image.fromarray(qr_array).convert("1")
+    qr_img = Image.fromarray(qr_data)
     return qr_img
 
-# Streamlit UI
+# --- Streamlit App ---
+st.set_page_config(page_title="🔐 Encrypted QR Steganography", layout="centered")
 st.title("🔐 Encrypted QR Code Steganography")
+st.write("Securely hide and decode encrypted messages inside images using QR codes and steganography.")
 
-mode = st.radio("Select Mode", ["🔏 Encrypt & Hide", "🔓 Extract & Decrypt"])
+mode = st.radio("Choose mode:", ["🔏 Encrypt & Hide", "🔓 Extract & Decrypt"])
 
 if mode == "🔏 Encrypt & Hide":
-    user_input = st.text_input("Enter secret message:")
-    cover_file = st.file_uploader("Upload a cover image (preferably large)", type=["png", "jpg", "jpeg"])
+    message = st.text_area("Enter secret message")
+    password = st.text_input("Enter 16-character AES password", type="password", max_chars=16)
+    cover_image = st.file_uploader("Upload cover image", type=["jpg", "png", "jpeg"])
 
     if st.button("Generate Stego Image"):
-        if user_input and cover_file:
-            encrypted = encrypt_data(user_input)
-            qr_img = generate_qr_code(encrypted)
-            cover_img = Image.open(cover_file)
-
-            try:
-                stego_img = hide_qr_in_image(cover_img, qr_img)
-                st.success("✅ Message embedded successfully!")
-                st.image(stego_img, caption="Stego Image")
-
-                buf = io.BytesIO()
-                stego_img.save(buf, format="PNG")
-                byte_im = buf.getvalue()
-                b64 = base64.b64encode(byte_im).decode()
-                href = f'<a href="data:file/png;base64,{b64}" download="stego_image.png">Download Stego Image</a>'
-                st.markdown(href, unsafe_allow_html=True)
-            except Exception as e:
-                st.error(f"❌ Error: {e}")
+        if not (message and password and cover_image):
+            st.error("❗ All fields are required.")
+        elif len(password) != 16:
+            st.error("❗ AES key must be exactly 16 characters.")
         else:
-            st.warning("Please provide both a message and cover image.")
+            encrypted_data = encrypt_data(message, password)
+            qr_img = generate_qr_code(encrypted_data)
+            cover_img = Image.open(cover_image)
+            stego_img = hide_qr_in_image(cover_img, qr_img)
+
+            st.success("✅ Stego image created. Download below:")
+            img_bytes = io.BytesIO()
+            stego_img.save(img_bytes, format='PNG')
+            st.download_button("📥 Download Stego Image", data=img_bytes.getvalue(), file_name="stego.png")
 
 elif mode == "🔓 Extract & Decrypt":
     stego_file = st.file_uploader("Upload stego image", type=["png", "jpg", "jpeg"])
+    password = st.text_input("Enter AES password used for encryption", type="password")
+
     if st.button("Extract Message"):
-        if stego_file:
-            stego_img = Image.open(stego_file)
+        if not (stego_file and password):
+            st.error("❗ Both image and password are required.")
+        else:
             try:
+                stego_img = Image.open(stego_file)
                 qr_img = extract_qr_from_image(stego_img)
-                           try:
-                qr_img = extract_qr_from_image(stego_img)
+
                 qr_img_cv = np.array(qr_img.convert("L"))  # Convert to grayscale (uint8)
                 decoded = decode(cv2.cvtColor(qr_img_cv, cv2.COLOR_GRAY2BGR))
                 if decoded:
                     encrypted_data = decoded[0].data.decode()
-                    message = decrypt_data(encrypted_data)
+                    message = decrypt_data(encrypted_data, password)
                     st.success("✅ Decrypted Message:")
                     st.code(message)
                 else:
                     st.error("❌ Could not decode QR code from image.")
             except Exception as e:
                 st.error(f"❌ Error: {e}")
-
-                if decoded:
-                    encrypted_data = decoded[0].data.decode()
-                    message = decrypt_data(encrypted_data)
-                    st.success("✅ Decrypted Message:")
-                    st.code(message)
-                else:
-                    st.error("❌ Could not decode QR code from image.")
-            except Exception as e:
-                st.error(f"❌ Error: {e}")
-        else:
-            st.warning("Please upload a stego image.")
