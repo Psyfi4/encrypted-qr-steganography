@@ -43,7 +43,10 @@ def hide_qr_in_image(cover_img, qr_img):
     for i in range(cover_data.shape[0]):
         for j in range(cover_data.shape[1]):
             bit = 1 if qr_data[i, j] == 0 else 0  # black pixel = 1
-            cover_data[i, j, 0] = (cover_data[i, j, 0] & ~1) | bit
+            red_channel = cover_data[i, j, 0]
+            # Safely set LSB to bit
+            red_channel = (red_channel & 0b11111110) | bit
+            cover_data[i, j, 0] = red_channel
 
     stego_img = Image.fromarray(cover_data)
     return stego_img
