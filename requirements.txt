@@ -1,0 +1,7 @@
+streamlit
+Pillow
+pycryptodome
+qrcode
+opencv-python
+numpy
+pyzbar
